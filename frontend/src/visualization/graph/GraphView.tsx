@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchJSON, modelQuery, graphDownloadURL } from '../../shared/api/api'
 import { ReactFlow, Background, Controls, type Node, type Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -15,9 +15,11 @@ export default function GraphView({ model }: { model: string }) {
   const [tensors, setTensors] = useState<any[]>([])
   const [err, setErr] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
+  const flow = useRef<any>(null)
 
   useEffect(() => {
-    setGraph(null); setSelected(null); setTensors([]); setCollapsed(new Set())
+    setGraph(null); setSelected(null); setTensors([]); setCollapsed(new Set()); setQuery(''); setErr('')
     const url = layer === null
       ? `/api/v1/models/graph?${modelQuery(model)}`
       : `/api/v1/models/graph?${modelQuery(model)}&layer=${layer}`
@@ -48,6 +50,27 @@ export default function GraphView({ model }: { model: string }) {
     return { nodes: ns, edges: es }
   }, [graph, collapsed])
 
+  const matches = useMemo(() => {
+    const term = query.trim().toLowerCase()
+    if (!term || !graph) return []
+    return (graph.nodes || []).filter((n: any) =>
+      `${n.label} ${n.kind} ${n.id}`.toLowerCase().includes(term)
+    ).slice(0, 8)
+  }, [graph, query])
+
+  const focusNode = (node: any) => {
+    const byId = new Map((graph.nodes || []).map((n: any) => [n.id, n]))
+    const nextCollapsed = new Set(collapsed)
+    let parentId = node.parent
+    while (parentId) {
+      nextCollapsed.delete(parentId)
+      parentId = (byId.get(parentId) as any)?.parent
+    }
+    setCollapsed(nextCollapsed)
+    setSelected(node)
+    requestAnimationFrame(() => flow.current?.fitView({ nodes: [{ id: node.id }], duration: 450, padding: 0.55 }))
+  }
+
   if (err) return <div className="loading">Graph unavailable: {err}</div>
   if (!graph) return <div className="loading" role="status">Building architecture graph…</div>
   const selTensors = selected ? tensors.filter((t: any) => selected.tensors?.some((s: any) => s.name === t.name) || t.module === selected.kind || selected.id.includes(t.module)) : []
@@ -63,10 +86,37 @@ export default function GraphView({ model }: { model: string }) {
       <a href={graphDownloadURL(model, 'svg')} download>Graph SVG</a>
       <a href={graphDownloadURL(model, 'png')} download>Graph PNG</a>
     </div>
+    <div className="graph-search">
+      <label htmlFor="graph-node-search">Find a component</label>
+      <div className="graph-search-control">
+        <input
+          id="graph-node-search"
+          type="search"
+          placeholder="Search by component, type, or path…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          aria-label="Search graph components"
+          aria-controls={query.trim() ? 'graph-search-results' : undefined}
+          aria-expanded={Boolean(query.trim())}
+        />
+        {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear component search">Clear</button>}
+      </div>
+      {query.trim() && <div id="graph-search-results" className="graph-search-results" role="listbox" aria-label="Matching components">
+        {matches.length > 0 ? matches.map((node: any) => <button
+          type="button"
+          role="option"
+          aria-selected={selected?.id === node.id}
+          key={node.id}
+          onClick={() => focusNode(node)}
+        >
+          <span>{node.label}</span><small>{node.kind}{node.layer !== null && node.layer !== undefined ? ` · layer ${node.layer}` : ''}</small>
+        </button>) : <p role="status">No matching components.</p>}
+      </div>}
+    </div>
     {graph.metadata_note && <p className="note">{graph.metadata_note}</p>}
-    <p className="note">Double-click a node to expand/collapse its subgraph. Click a node to inspect tensors.</p>
+    <p className="note">Click a node to inspect its evidence and tensors. Double-click a node to expand or collapse its subgraph.</p>
     <div style={{ height: 520 }}>
-      <ReactFlow nodes={nodes} edges={edges} onNodeClick={(_, n) => setSelected(graph.nodes.find((x: any) => x.id === n.id))} onNodeDoubleClick={(_, n) => setCollapsed(prev => { const s = new Set(prev); s.has(n.id) ? s.delete(n.id) : s.add(n.id); return s })} fitView colorMode="light">
+      <ReactFlow nodes={nodes} edges={edges} onInit={instance => { flow.current = instance }} onNodeClick={(_, n) => setSelected(graph.nodes.find((x: any) => x.id === n.id))} onNodeDoubleClick={(_, n) => setCollapsed(prev => { const s = new Set(prev); s.has(n.id) ? s.delete(n.id) : s.add(n.id); return s })} fitView colorMode="light">
         <Background /><Controls />
       </ReactFlow>
     </div>
