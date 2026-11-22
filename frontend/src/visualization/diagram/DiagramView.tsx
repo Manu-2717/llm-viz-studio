@@ -8,12 +8,28 @@ import { fmtParams, fmtNum, type ArchSpec } from '../../shared/model-metadata/ty
 import type { TensorInfo } from '../../graph/types'
 import { buildSemanticTree } from '../../engine/semantic/tree'
 import { computeDiagramLayout } from '../../engine/semantic/layout'
-import { renderSemanticDiagram } from '../../engine/semantic/render'
+import { renderSemanticDiagram, type DiagramCamera } from '../../engine/semantic/render'
 import type {
   WorkspaceState,
   DetailPreset,
   LayoutedNode,
 } from '../../engine/semantic/types'
+
+const DEFAULT_CAMERA: DiagramCamera = { yaw: -24, pitch: -16 }
+const ROTATION_KEYS = new Map([
+  ['ArrowLeft', [-8, 0]],
+  ['ArrowRight', [8, 0]],
+  ['ArrowUp', [0, -8]],
+  ['ArrowDown', [0, 8]],
+])
+
+function rotateCamera(camera: DiagramCamera, yaw: number, pitch: number): DiagramCamera {
+  // Keep the front plane visible so labels stay usable at every allowed angle.
+  return {
+    yaw: Math.max(-65, Math.min(65, camera.yaw + yaw)),
+    pitch: Math.max(-55, Math.min(55, camera.pitch + pitch)),
+  }
+}
 
 export default function DiagramView({ model }: { model: string }) {
   const [spec, setSpec] = useState<ArchSpec | null>(null)
@@ -45,12 +61,22 @@ export default function DiagramView({ model }: { model: string }) {
 
   // UI Panels & Canvas Viewport
   const [spatial, setSpatial] = useState(() => new URLSearchParams(window.location.search).get('view') === '3d')
+  const [camera, setCamera] = useState(DEFAULT_CAMERA)
   const [showInspector, setShowInspector] = useState(true)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [scale, setScale] = useState(1)
   const [tx, setTx] = useState(0)
   const [ty, setTy] = useState(0)
-  const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null)
+  const drag = useRef<{
+    pointerId: number
+    x: number
+    y: number
+    tx: number
+    ty: number
+    camera: DiagramCamera | null
+    moved: boolean
+  } | null>(null)
+  const skipClick = useRef(false)
   const stage = useRef<HTMLDivElement>(null)
   const keyboardNode = useRef<string | null>(null)
 
@@ -169,11 +195,11 @@ export default function DiagramView({ model }: { model: string }) {
     if (!layout || !spec) return ''
     return renderSemanticDiagram(layout, spec, workspaceState, {
       interactive: true,
-      spatial,
+      camera: spatial ? camera : undefined,
       selectedNodeId,
       focusedNodeId,
     })
-  }, [layout, spec, workspaceState, selectedNodeId, focusedNodeId, spatial])
+  }, [layout, spec, workspaceState, selectedNodeId, focusedNodeId, spatial, camera])
 
   useEffect(() => {
     if (!keyboardNode.current) return
@@ -245,16 +271,43 @@ export default function DiagramView({ model }: { model: string }) {
   }
 
   const onDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest('[data-node-id]')) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { x: e.clientX, y: e.clientY, tx, ty }
+    if (e.button !== 0 || !e.isPrimary || (e.target as Element).closest('button')) return
+    skipClick.current = false
+    const shouldOrbit = spatial && !e.shiftKey
+    if (!shouldOrbit && (e.target as Element).closest('[data-node-id]')) return
+    drag.current = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      tx,
+      ty,
+      camera: shouldOrbit ? camera : null,
+      moved: false,
+    }
   }
 
   const onMove = (e: React.PointerEvent) => {
-    if (drag.current) {
-      setTx(drag.current.tx + e.clientX - drag.current.x)
-      setTy(drag.current.ty + e.clientY - drag.current.y)
+    const start = drag.current
+    if (!start || start.pointerId !== e.pointerId) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    if (!start.moved) {
+      if (Math.hypot(dx, dy) < 5) return
+      e.currentTarget.setPointerCapture(e.pointerId)
+      start.moved = true
+      skipClick.current = true
     }
+
+    if (start.camera) {
+      setCamera(rotateCamera(start.camera, dx * 0.28, dy * 0.28))
+    } else {
+      setTx(start.tx + dx)
+      setTy(start.ty + dy)
+    }
+  }
+
+  const endDrag = (e: React.PointerEvent) => {
+    if (drag.current?.pointerId === e.pointerId) drag.current = null
   }
 
   const toggleNode = (nodeId: string, expanded: boolean) => {
@@ -737,13 +790,27 @@ export default function DiagramView({ model }: { model: string }) {
       {/* Main Stage & Canvas */}
       <div className="diagram-canvas-row">
         <div
-          className="stage interactive-stage"
+          className={`stage interactive-stage${spatial ? ' is-spatial' : ''}`}
+          role={spatial ? 'region' : undefined}
+          aria-label={spatial ? '3D architecture canvas' : undefined}
+          aria-describedby={spatial ? 'diagram-orbit-instructions' : undefined}
+          tabIndex={spatial ? 0 : undefined}
           ref={stage}
           onPointerDown={onDown}
           onPointerMove={onMove}
-          onLostPointerCapture={() => (drag.current = null)}
-          onClick={e => activateNode(e.target)}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onClick={e => {
+            if (!skipClick.current || e.detail === 0) activateNode(e.target)
+            skipClick.current = false
+          }}
           onKeyDown={e => {
+            const rotation = spatial && e.target === e.currentTarget ? ROTATION_KEYS.get(e.key) : undefined
+            if (rotation) {
+              e.preventDefault()
+              setCamera(previous => rotateCamera(previous, rotation[0], rotation[1]))
+            }
             if ((e.key === 'Enter' || e.key === ' ') && (e.target as Element).hasAttribute('data-node-id')) {
               e.preventDefault()
               keyboardNode.current = (e.target as SVGElement).dataset.nodeId ?? null
@@ -759,6 +826,14 @@ export default function DiagramView({ model }: { model: string }) {
             }}
             dangerouslySetInnerHTML={{ __html: svgString }}
           />
+          {spatial && (
+            <div className="diagram-orbit-controls">
+              <span id="diagram-orbit-instructions" title="Shift-drag to pan">Drag or use arrow keys to rotate</span>
+              <button type="button" className="toolbar-btn" onClick={() => setCamera(DEFAULT_CAMERA)}>
+                Reset angle
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Collapsible Inspector Panel */}

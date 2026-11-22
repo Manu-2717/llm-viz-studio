@@ -35,9 +35,14 @@ function displayName(name: string): string {
   return out.join(' ')
 }
 
+export interface DiagramCamera {
+  yaw: number
+  pitch: number
+}
+
 export interface RenderOptions {
   interactive?: boolean
-  spatial?: boolean
+  camera?: DiagramCamera
   selectedNodeId?: string | null
   focusedNodeId?: string | null
 }
@@ -56,6 +61,8 @@ export function renderSemanticDiagram(
   const cx = 470
   const isInteractive = options.interactive ?? true
   const selectedId = options.selectedNodeId || state.selectedNodeId
+  const projection = options.camera && projectCamera(options.camera, layout.width / 2, layout.height / 2)
+  if (projection) g.raw(`<g class="diagram-scene-3d" transform="${projection.transform}">`)
 
   // Focus Mode Title or Model Title
   if (state.focusedNodeId) {
@@ -101,10 +108,10 @@ export function renderSemanticDiagram(
   for (const n of layout.rootNodes) {
     const isFocusGroup = Boolean(state.focusedNodeId && n.children?.length)
     g.raw(isFocusGroup ? '<g>' : `<g ${nodeAttrs(n)}>`)
-    if (options.spatial && !isFocusGroup && n.kind !== 'residual_add_1' && n.kind !== 'residual_add_2') {
-      drawDepth(g, n, 22, 12)
+    if (projection && !isFocusGroup && n.kind !== 'residual_add_1' && n.kind !== 'residual_add_2') {
+      drawDepth(g, n, projection, 38)
     }
-    renderNode(g, n, spec, state, nodeAttrs, isInteractive, options.spatial)
+    renderNode(g, n, spec, state, nodeAttrs, isInteractive, projection)
     g.raw('</g>')
   }
 
@@ -127,7 +134,7 @@ export function renderSemanticDiagram(
 
       // 5. Child projection pills inside side inset
       for (const ch of inset.children) {
-        renderChildPill(g, ch, nodeAttrs, options.spatial)
+        renderChildPill(g, ch, nodeAttrs, projection)
       }
 
       drawDetailEdges(inset.edges)
@@ -224,16 +231,41 @@ export function renderSemanticDiagram(
     g.leader(c.x - 10, c.y + 10, c.targetX, c.targetY)
   }
 
+  if (projection) g.raw('</g>')
   const id = scopeId(accent)
-  const css = stylesheet(accent) + (isInteractive ? workspaceStyles(id, options.spatial) : '')
+  const css = stylesheet(accent) + (isInteractive ? workspaceStyles(id, Boolean(projection)) : '')
   return g.document(layout.width, layout.height, css, id, isInteractive)
 }
 
-// Keep the front plane aligned with the shared 2D layout so arrows and labels stay readable.
-function drawDepth(g: SVG, node: LayoutedNode, dx: number, dy: number): void {
+// Orthographic projection of the front plane after yaw, then pitch.
+function projectCamera(camera: DiagramCamera, cx: number, cy: number) {
+  const yaw = camera.yaw * Math.PI / 180
+  const pitch = camera.pitch * Math.PI / 180
+  const a = Math.cos(yaw)
+  const b = Math.sin(pitch) * Math.sin(yaw)
+  const d = Math.cos(pitch)
+  return {
+    transform: `matrix(${a} ${b} 0 ${d} ${cx * (1 - a)} ${cy * (1 - d) - b * cx})`,
+    // Express the projected depth vector in front-plane coordinates for the SVG group.
+    depthX: -Math.tan(yaw),
+    depthY: Math.tan(pitch) / a,
+  }
+}
+
+type CameraProjection = ReturnType<typeof projectCamera>
+
+function drawDepth(g: SVG, node: LayoutedNode, projection: CameraProjection, depth: number): void {
   const { x, y, rightX, bottomY } = node
-  g.raw(`<path class="volume-top" d="M ${x} ${y} l ${dx} -${dy} H ${rightX + dx} L ${rightX} ${y} Z"/>`)
-  g.raw(`<path class="volume-side" d="M ${rightX} ${y} l ${dx} -${dy} V ${bottomY - dy} L ${rightX} ${bottomY} Z"/>`)
+  const dx = projection.depthX * depth
+  const dy = projection.depthY * depth
+  if (Math.abs(dy) > 0.01) {
+    const faceY = dy < 0 ? y : bottomY
+    g.path(`M ${x} ${faceY} l ${dx} ${dy} h ${node.width} L ${rightX} ${faceY} Z`, 'volume-top')
+  }
+  if (Math.abs(dx) > 0.01) {
+    const faceX = dx > 0 ? rightX : x
+    g.path(`M ${faceX} ${y} l ${dx} ${dy} v ${node.height} L ${faceX} ${bottomY} Z`, 'volume-side')
+  }
 }
 
 /**
@@ -246,7 +278,7 @@ function renderNode(
   state: WorkspaceState,
   nodeAttrs: (n: LayoutedNode) => string,
   isInteractive: boolean,
-  spatial?: boolean
+  projection?: CameraProjection
 ): void {
   // 1. Attention Block
   if (n.kind === 'attention') {
@@ -255,7 +287,7 @@ function renderNode(
       g.rect(n.x, n.y, n.width, n.height, 20, 'inset-accent')
       g.text(n.cx, n.y + 26, `▲ Self-Attention Mechanism (Expanded)`, 16, 'accent', 'middle', 700)
       for (const ch of n.children) {
-        renderChildPill(g, ch, nodeAttrs, spatial)
+        renderChildPill(g, ch, nodeAttrs, projection)
       }
       return
     }
@@ -294,7 +326,7 @@ function renderNode(
         700
       )
       for (const ch of n.children) {
-        renderChildPill(g, ch, nodeAttrs, spatial)
+        renderChildPill(g, ch, nodeAttrs, projection)
       }
       return
     }
@@ -324,7 +356,7 @@ function renderNode(
   if (state.focusedNodeId && n.children?.length) {
     g.rect(n.x, n.y, n.width, n.height, 20, 'inset-accent')
     for (const child of n.children) {
-      renderChildPill(g, child, nodeAttrs, spatial)
+      renderChildPill(g, child, nodeAttrs, projection)
     }
     return
   }
@@ -344,10 +376,10 @@ function renderChildPill(
   g: SVG,
   ch: LayoutedNode,
   nodeAttrs: (n: LayoutedNode) => string,
-  spatial?: boolean
+  projection?: CameraProjection
 ): void {
   g.raw(`<g ${nodeAttrs(ch)} id="${escapeHtml(ch.id)}">`)
-  if (spatial) drawDepth(g, ch, 9, 5)
+  if (projection) drawDepth(g, ch, projection, 15)
   const pillClass = 'pill'
 
   g.rect(ch.x, ch.y, ch.width, ch.height, 10, pillClass)

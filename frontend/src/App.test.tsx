@@ -123,6 +123,21 @@ describe('unified interactive diagram viewer test', () => {
     expect(attention().querySelector('.volume-top')).not.toBeNull()
     expect(attention().getAttribute('aria-expanded')).toBe('true')
 
+    const scene = () => container.querySelector('.diagram-scene-3d')!
+    const canvas = container.querySelector('[aria-label="3D architecture canvas"]')!
+    const initialTransform = scene().getAttribute('transform')
+    const initialFace = attention().querySelector('.volume-side')?.getAttribute('d')
+    await act(async () => canvas.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+    })))
+    expect(scene().getAttribute('transform')).not.toBe(initialTransform)
+    expect(attention().querySelector('.volume-side')?.getAttribute('d')).not.toBe(initialFace)
+    const resetAngle = Array.from(container.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === 'Reset angle')!
+    await act(async () => resetAngle.click())
+    expect(scene().getAttribute('transform')).toBe(initialTransform)
+
     await act(async () => attention().dispatchEvent(new KeyboardEvent('keydown', {
       key: 'Enter',
       bubbles: true,

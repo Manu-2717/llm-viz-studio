@@ -816,6 +816,31 @@ code {
   cursor: grabbing;
 }
 
+.interactive-stage:focus-visible {
+  outline: 2px solid #0e7490;
+  outline-offset: -2px;
+}
+
+.is-spatial .svg-viewport-wrapper svg {
+  overflow: visible;
+}
+
+.diagram-orbit-controls {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  cursor: default;
+}
+
 .svg-viewport-wrapper {
   position: absolute;
   top: 0;
