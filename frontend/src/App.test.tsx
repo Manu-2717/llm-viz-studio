@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createRoot } from 'react-dom/client'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import App, { cleanModelId } from './App'
 
 describe('homepage and URL cleaner', () => {
@@ -81,7 +81,7 @@ describe('unified interactive diagram viewer test', () => {
     const root = createRoot(container)
 
     await act(async () => {
-      root.render(<App />)
+      root.render(<StrictMode><App /></StrictMode>)
     })
 
     // Allow promise resolution
@@ -111,6 +111,31 @@ describe('unified interactive diagram viewer test', () => {
     })
 
     expect(preset3.classList.contains('is-active')).toBe(true)
+
+    const attention = () => container.querySelector<SVGElement>('[data-node-id="layer_0_attention"]')!
+    const viewButton = (name: string) => Array.from(container.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="Diagram view"] button'
+    )).find(button => button.textContent === name)!
+
+    expect(attention().querySelector('.volume-top')).toBeNull()
+    await act(async () => viewButton('3D').click())
+    expect(viewButton('3D').getAttribute('aria-pressed')).toBe('true')
+    expect(attention().querySelector('.volume-top')).not.toBeNull()
+    expect(attention().getAttribute('aria-expanded')).toBe('true')
+
+    await act(async () => attention().dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+    })))
+    expect(attention().getAttribute('aria-expanded')).toBe('false')
+    expect(attention().getAttribute('aria-pressed')).toBe('true')
+    expect(document.activeElement).toBe(attention())
+
+    await act(async () => viewButton('2D').click())
+    expect(attention().querySelector('.volume-top')).toBeNull()
+    expect(attention().getAttribute('aria-expanded')).toBe('false')
+    expect(attention().getAttribute('aria-pressed')).toBe('true')
+
 
     await act(async () => {
       root.unmount()
