@@ -133,6 +133,22 @@ describe('unified interactive diagram viewer test', () => {
     })))
     expect(scene().getAttribute('transform')).not.toBe(initialTransform)
     expect(attention().querySelector('.volume-side')?.getAttribute('d')).not.toBe(initialFace)
+    const turnRight = (steps: number) => act(async () => {
+      for (let step = 0; step < steps; step++) {
+        canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      }
+    })
+    await turnRight(13)
+    expect(container.querySelectorAll('.orbit-label-chip').length).toBeGreaterThan(0)
+    await turnRight(11)
+    expect(scene().getAttribute('transform')).toMatch(/^matrix\(-/)
+    expect(container.querySelector('.orbit-labels')?.hasAttribute('transform')).toBe(false)
+    await turnRight(20)
+    const matrix = (transform: string | null) => transform?.slice(7, -1).split(' ').map(Number)
+    matrix(initialTransform)?.forEach((value, index) => {
+      expect(matrix(scene().getAttribute('transform'))?.[index]).toBeCloseTo(value)
+    })
+
     const resetAngle = Array.from(container.querySelectorAll('button'))
       .find(button => button.textContent?.trim() === 'Reset angle')!
     await act(async () => resetAngle.click())

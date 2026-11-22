@@ -24,9 +24,8 @@ const ROTATION_KEYS = new Map([
 ])
 
 function rotateCamera(camera: DiagramCamera, yaw: number, pitch: number): DiagramCamera {
-  // Keep the front plane visible so labels stay usable at every allowed angle.
   return {
-    yaw: Math.max(-65, Math.min(65, camera.yaw + yaw)),
+    yaw: ((camera.yaw + yaw) % 360 + 360) % 360,
     pitch: Math.max(-55, Math.min(55, camera.pitch + pitch)),
   }
 }
@@ -196,10 +195,11 @@ export default function DiagramView({ model }: { model: string }) {
     return renderSemanticDiagram(layout, spec, workspaceState, {
       interactive: true,
       camera: spatial ? camera : undefined,
+      viewportScale: spatial ? scale : undefined,
       selectedNodeId,
       focusedNodeId,
     })
-  }, [layout, spec, workspaceState, selectedNodeId, focusedNodeId, spatial, camera])
+  }, [layout, spec, workspaceState, selectedNodeId, focusedNodeId, spatial, camera, scale])
 
   useEffect(() => {
     if (!keyboardNode.current) return
@@ -330,13 +330,12 @@ export default function DiagramView({ model }: { model: string }) {
     const nodeId = target?.getAttribute('data-node-id')
     if (!target || !nodeId) return
 
-    const isExpandable = target.getAttribute('data-expandable') === 'true'
-    const isCurrentlyExpanded = target.getAttribute('data-expanded') === 'true'
+    const node = layout?.allNodes.get(nodeId)
 
     setSelectedNodeId(nodeId)
     setShowInspector(true)
 
-    if (isExpandable) toggleNode(nodeId, isCurrentlyExpanded)
+    if (node?.is_expandable) toggleNode(nodeId, node.isExpanded)
   }
 
   // Preset switch handler
