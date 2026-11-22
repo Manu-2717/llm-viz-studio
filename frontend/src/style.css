@@ -821,6 +821,83 @@ code {
   outline-offset: -2px;
 }
 
+.interactive-stage.is-spatial {
+  background: radial-gradient(ellipse at 50% 44%, #fff 0%, #edf3f6 66%, #e6edf4 100%);
+}
+
+.tensor-scene-caption {
+  position: absolute;
+  top: 17px;
+  left: 18px;
+  display: grid;
+  gap: 5px;
+  color: #233248;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.tensor-scene-caption > span {
+  color: #53657c;
+  font-size: 11px;
+}
+
+.tensor-scene-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0;
+  margin: 3px 0 0;
+  list-style: none;
+  font-size: 11px;
+}
+
+.tensor-scene-key li {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.tensor-scene-key i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.tensor-key-weights { background: #6175bc; }
+.tensor-key-activations { background: #48a78f; }
+.tensor-key-operations { background: #d99b51; }
+
+.tensor-walkthrough {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 11px;
+  border: 1px solid #c9dedc;
+  border-radius: 8px;
+  background: #eef7f6;
+  color: #20384a;
+  font-size: 12px;
+}
+
+.tensor-walkthrough > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.tensor-step-count {
+  font-variant-numeric: tabular-nums;
+  color: #4c6474;
+  white-space: nowrap;
+}
+
+.tensor-walkthrough-actions button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
 .is-spatial .svg-viewport-wrapper svg {
   overflow: visible;
 }

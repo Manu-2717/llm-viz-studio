@@ -8,14 +8,15 @@ import { fmtParams, fmtNum, type ArchSpec } from '../../shared/model-metadata/ty
 import type { TensorInfo } from '../../graph/types'
 import { buildSemanticTree } from '../../engine/semantic/tree'
 import { computeDiagramLayout } from '../../engine/semantic/layout'
-import { renderSemanticDiagram, type DiagramCamera } from '../../engine/semantic/render'
+import { renderSemanticDiagram } from '../../engine/semantic/render'
+import { visibleTensorNodes, type DiagramCamera } from '../../engine/semantic/tensorScene'
 import type {
   WorkspaceState,
   DetailPreset,
   LayoutedNode,
 } from '../../engine/semantic/types'
 
-const DEFAULT_CAMERA: DiagramCamera = { yaw: -24, pitch: -16 }
+const DEFAULT_CAMERA: DiagramCamera = { yaw: -32, pitch: -23 }
 const ROTATION_KEYS = new Map([
   ['ArrowLeft', [-8, 0]],
   ['ArrowRight', [8, 0]],
@@ -208,6 +209,14 @@ export default function DiagramView({ model }: { model: string }) {
     keyboardNode.current = null
   }, [svgString])
 
+  const walkthrough = useMemo(() => layout && spatial ? visibleTensorNodes(layout) : [], [layout, spatial])
+  const walkthroughIndex = walkthrough.findIndex(node => node.id === selectedNodeId)
+
+  const moveWalkthrough = (offset: number) => {
+    const next = walkthrough[walkthroughIndex + offset]
+    if (next) setSelectedNodeId(next.id)
+  }
+
   // Selected node lookup for inspector
   const selectedNode: LayoutedNode | null = useMemo(() => {
     if (!selectedNodeId || !layout) return null
@@ -226,15 +235,18 @@ export default function DiagramView({ model }: { model: string }) {
     const el = stage.current
     if (!el || !diagramWidth || !diagramHeight || !el.clientWidth || !el.clientHeight) return
     const pad = 24
+    const compactScene = spatial && el.clientWidth < 600
+    const top = compactScene ? 76 : pad
+    const bottom = compactScene ? 50 : pad
     const targetScale = Math.max(0.08, Math.min(
       (el.clientWidth - pad * 2) / diagramWidth,
-      (el.clientHeight - pad * 2) / diagramHeight,
+      (el.clientHeight - top - bottom) / diagramHeight,
       1,
     ))
     setScale(targetScale)
     setTx((el.clientWidth - diagramWidth * targetScale) / 2)
-    setTy((el.clientHeight - diagramHeight * targetScale) / 2)
-  }, [diagramWidth, diagramHeight])
+    setTy(top + (el.clientHeight - top - bottom - diagramHeight * targetScale) / 2)
+  }, [diagramWidth, diagramHeight, spatial])
 
   useEffect(() => {
     const el = stage.current
@@ -420,9 +432,15 @@ export default function DiagramView({ model }: { model: string }) {
     const el = stage.current
     if (el) {
       const targetScale = Math.max(scale, 1.15)
+      const volume = spatial ? Array.from(el.querySelectorAll<SVGGElement>('.tensor-volume'))
+        .find(volume => volume.dataset.nodeId === node.id) : undefined
+      const bounds = volume?.getBoundingClientRect()
+      const stageBounds = el.getBoundingClientRect()
+      const x = bounds ? (bounds.left - stageBounds.left + bounds.width / 2 - tx) / scale : node.cx
+      const y = bounds ? (bounds.top - stageBounds.top + bounds.height / 2 - ty) / scale : node.topY + node.height / 2
       setScale(targetScale)
-      setTx(el.clientWidth / 2 - node.cx * targetScale)
-      setTy(el.clientHeight / 2 - (node.topY + node.height / 2) * targetScale)
+      setTx(el.clientWidth / 2 - x * targetScale)
+      setTy(el.clientHeight / 2 - y * targetScale)
     }
   }
 
@@ -826,6 +844,17 @@ export default function DiagramView({ model }: { model: string }) {
             dangerouslySetInnerHTML={{ __html: svgString }}
           />
           {spatial && (
+            <div className="tensor-scene-caption">
+              <strong>{spec.name}</strong>
+              <span>{focusedNodeId ? 'Component detail' : `${fmtNum(spec.num_layers)} decoder layers`}</span>
+              <ul className="tensor-scene-key" aria-label="Tensor colors">
+                <li><i className="tensor-key-weights" />Weights</li>
+                <li><i className="tensor-key-activations" />Activations</li>
+                <li><i className="tensor-key-operations" />Operations</li>
+              </ul>
+            </div>
+          )}
+          {spatial && (
             <div className="diagram-orbit-controls">
               <span id="diagram-orbit-instructions" title="Shift-drag to pan">Drag or use arrow keys to rotate</span>
               <button type="button" className="toolbar-btn" onClick={() => setCamera(DEFAULT_CAMERA)}>
@@ -849,6 +878,27 @@ export default function DiagramView({ model }: { model: string }) {
                 ✕
               </button>
             </div>
+
+            {spatial && walkthrough.length > 0 && (
+              <nav className="tensor-walkthrough" aria-label="Architecture walkthrough">
+                <div>
+                  <strong>Architecture walkthrough</strong>
+                  <span aria-live="polite" className="tensor-step-count">
+                    {walkthroughIndex < 0 ? `${walkthrough.length} components` : `${walkthroughIndex + 1} of ${walkthrough.length}`}
+                  </span>
+                </div>
+                <div className="tensor-walkthrough-actions">
+                  {walkthroughIndex >= 0 && (
+                    <button type="button" className="toolbar-btn" disabled={walkthroughIndex === 0} onClick={() => moveWalkthrough(-1)}>
+                      Previous
+                    </button>
+                  )}
+                  <button type="button" className="toolbar-btn" disabled={walkthroughIndex >= walkthrough.length - 1} onClick={() => moveWalkthrough(1)}>
+                    {walkthroughIndex < 0 ? 'Start walkthrough' : 'Next'}
+                  </button>
+                </div>
+              </nav>
+            )}
 
             {selectedNode ? (
               <div className="inspector-selected-content">

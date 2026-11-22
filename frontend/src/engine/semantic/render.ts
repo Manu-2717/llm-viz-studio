@@ -1,3 +1,4 @@
+import { renderTensorScene, type DiagramCamera } from './tensorScene'
 import { SVG, escapeHtml, fmtCount } from '../render/svg'
 import { accentFor, scopeId, stylesheet, blockTint } from '../render/tokens'
 import { textWidth } from '../render/widths'
@@ -35,11 +36,6 @@ function displayName(name: string): string {
   return out.join(' ')
 }
 
-export interface DiagramCamera {
-  yaw: number
-  pitch: number
-}
-
 export interface RenderOptions {
   interactive?: boolean
   camera?: DiagramCamera
@@ -61,10 +57,8 @@ export function renderSemanticDiagram(
   const cx = 470
   const isInteractive = options.interactive ?? true
   const selectedId = options.selectedNodeId || state.selectedNodeId
-  const projection = options.camera && projectCamera(options.camera, layout.width / 2, layout.height / 2)
-  const orbit = projection ? new OrbitSVG(projection, selectedId, layout.width, options.viewportScale ?? 1) : null
-  const g = orbit ?? new SVG()
-  if (projection) g.raw(`<g class="diagram-scene-3d" transform="${projection.transform}">`)
+  if (options.camera) return renderTensorScene(layout, options.camera, selectedId, options.viewportScale ?? 1)
+  const g = new SVG()
 
   // Focus Mode Title or Model Title
   if (state.focusedNodeId) {
@@ -110,11 +104,7 @@ export function renderSemanticDiagram(
   for (const n of layout.rootNodes) {
     const isFocusGroup = Boolean(state.focusedNodeId && n.children?.length)
     g.raw(isFocusGroup ? '<g>' : `<g ${nodeAttrs(n)}>`)
-    if (orbit && !isFocusGroup && n.kind !== 'residual_add_1' && n.kind !== 'residual_add_2') {
-      orbit.beginVolume(n, 38)
-    }
     renderNode(g, n, spec, state, nodeAttrs, isInteractive)
-    orbit?.endVolume()
     g.raw('</g>')
   }
 
@@ -234,150 +224,9 @@ export function renderSemanticDiagram(
     g.leader(c.x - 10, c.y + 10, c.targetX, c.targetY)
   }
 
-  if (orbit) {
-    g.raw('</g>')
-    orbit.drawLabels()
-  }
   const id = scopeId(accent)
-  const css = stylesheet(accent) + (isInteractive ? workspaceStyles(id, Boolean(projection)) : '')
+  const css = stylesheet(accent) + (isInteractive ? workspaceStyles(id) : '')
   return g.document(layout.width, layout.height, css, id, isInteractive)
-}
-
-// Keep the SVG matrix invertible at exactly 90° and 270° without a visible change.
-function projectCamera(camera: DiagramCamera, cx: number, cy: number) {
-  const yaw = camera.yaw * Math.PI / 180
-  const pitch = camera.pitch * Math.PI / 180
-  const cosine = Math.cos(yaw)
-  const rear = cosine < 0
-  const a = Math.abs(cosine) < 0.0001 ? (rear ? -0.0001 : 0.0001) : cosine
-  const b = Math.sin(pitch) * Math.sin(yaw)
-  const d = Math.cos(pitch)
-  const tx = cx * (1 - a)
-  const ty = cy * (1 - d) - b * cx
-  return {
-    transform: `matrix(${a} ${b} 0 ${d} ${tx} ${ty})`,
-    point: (x: number, y: number) => ({ x: a * x + tx, y: b * x + d * y + ty }),
-    edgeOn: Math.abs(cosine) < 0.3,
-    rear,
-    labelScale: Math.max(0.8, Math.abs(cosine)),
-    depthX: -Math.sin(yaw) / a,
-    depthY: Math.tan(pitch) / a,
-  }
-}
-
-type CameraProjection = ReturnType<typeof projectCamera>
-type OrbitLabel = { x: number; y: number; width: number; nodeId: string; text: string }
-
-class OrbitSVG extends SVG {
-  private labels = new SVG()
-  private edgeLabels: OrbitLabel[] = []
-  private volume: { node: LayoutedNode; x: number; y: number } | null = null
-
-  private edgeFontSize: number
-
-  constructor(
-    private camera: CameraProjection,
-    private selectedId: string | null,
-    private diagramWidth: number,
-    viewportScale: number,
-  ) {
-    super()
-    this.edgeFontSize = Math.max(14, 11 / viewportScale)
-  }
-
-  beginVolume(node: LayoutedNode, depth: number): void {
-    const depthX = this.camera.depthX * depth
-    const depthY = this.camera.depthY * depth
-    const direction = this.camera.rear ? -1 : 1
-    const x = this.camera.rear ? depthX : 0
-    const y = this.camera.rear ? depthY : 0
-    this.volume = { node, x, y }
-    this.raw(`<g class="volume-front" transform="translate(${x} ${y})">`)
-    const dx = depthX * direction
-    const dy = depthY * direction
-    const faceY = dy < 0 ? node.y : node.bottomY
-    const faceX = dx > 0 ? node.rightX : node.x
-    if (Math.abs(dy) > 0.01) {
-      this.path(`M ${node.x} ${faceY} l ${dx} ${dy} h ${node.width} L ${node.rightX} ${faceY} Z`, 'volume-top')
-    }
-    if (Math.abs(dx) > 0.01) {
-      this.path(`M ${faceX} ${node.y} l ${dx} ${dy} v ${node.height} L ${faceX} ${node.bottomY} Z`, 'volume-side')
-    }
-    if (this.camera.edgeOn) {
-      const point = this.camera.point(node.cx + x, node.y + node.height / 2 + y)
-      const text = node.label.replace(/\s*\([a-z0-9_]+\)$/i, '')
-      this.edgeLabels.push({ ...point, nodeId: node.id, text, width: textWidth(text, this.edgeFontSize, true) + this.edgeFontSize })
-    }
-  }
-
-  endVolume(): void {
-    if (!this.volume) return
-    this.volume = null
-    this.raw('</g>')
-  }
-
-  private labelPoint(x: number, y: number) {
-    if (!this.volume) return this.camera.point(x, y)
-    const { node, x: offsetX, y: offsetY } = this.volume
-    const point = this.camera.point(node.cx + offsetX, y + offsetY)
-    point.x += (x - node.cx) * this.camera.labelScale
-    return point
-  }
-
-  private labelAnchor(anchor: string) {
-    if (this.volume || !this.camera.rear || anchor === 'middle') return anchor
-    return anchor === 'start' ? 'end' : 'start'
-  }
-
-  override text(...args: Parameters<SVG['text']>): void {
-    if (this.camera.edgeOn) return
-    const [x, y, value, size = 13, cls, anchor = 'start', weight] = args
-    const point = this.labelPoint(x, y)
-    this.labels.text(point.x, point.y, value, size * this.camera.labelScale, cls, this.labelAnchor(anchor), weight)
-  }
-
-  override richText(...args: Parameters<SVG['richText']>): void {
-    if (this.camera.edgeOn) return
-    const [x, y, runs, size = 19, anchor = 'start', weight] = args
-    const point = this.labelPoint(x, y)
-    this.labels.richText(point.x, point.y, runs, size * this.camera.labelScale, this.labelAnchor(anchor), weight)
-  }
-
-  drawLabels(): void {
-    this.raw('<g class="orbit-labels">')
-    for (const part of this.labels.parts) this.raw(part)
-    // A side view compresses whole rows into one column. Fan colliding labels out
-    // onto short leaders so their text stays readable, with the selected node first.
-    const placed: OrbitLabel[] = []
-    const labelHeight = this.edgeFontSize * 1.55
-    const ordered = this.edgeLabels.slice().sort((a, b) =>
-      Number(b.nodeId === this.selectedId) - Number(a.nodeId === this.selectedId))
-    for (const label of ordered) {
-      const minX = label.width / 2 + 12
-      const maxX = this.diagramWidth - minX
-      const clampX = (x: number) => Math.max(minX, Math.min(maxX, x))
-      const candidates = [0, -1, 1, -2, 2, -3, 3].map(step =>
-        clampX(label.x + step * this.edgeFontSize * 3))
-      let y = label.y
-      let row = 0
-      const availableX = () => candidates.find(x => !placed.some(other =>
-        Math.abs(y - other.y) < labelHeight + 4 && Math.abs(x - other.x) < (label.width + other.width) / 2 + 8))
-      let x = availableX()
-      while (x === undefined) {
-        row = row > 0 ? -row : 1 - row
-        y = label.y + row * (labelHeight + 4)
-        x = availableX()
-      }
-      placed.push({ ...label, x, y })
-      if (x !== label.x || y !== label.y) this.line(label.x, label.y, x, y, 'leader')
-      const selected = label.nodeId === this.selectedId ? ' is-selected' : ''
-      this.raw(`<g class="orbit-label-chip${selected}" data-node-id="${escapeHtml(label.nodeId)}">`)
-      this.rect(x - label.width / 2, y - labelHeight / 2, label.width, labelHeight, 5)
-      super.text(x, y + this.edgeFontSize * 0.34, label.text, this.edgeFontSize, '', 'middle', 600)
-      this.raw('</g>')
-    }
-    this.raw('</g>')
-  }
 }
 
 /**
@@ -410,13 +259,13 @@ function renderNode(
       g.richText(n.cx, n.y + 40 + i * 30, al[i], 23, 'middle', 400)
     }
 
-    if (n.isExpanded && !(g instanceof OrbitSVG)) {
+    if (n.isExpanded) {
       g.rect(n.rightX - 116, n.y + 12, 102, 22, 5, 'pill')
       g.text(n.rightX - 65, n.y + 26, 'MAGNIFIED ▶', 10, 'accent', 'middle', 700)
       if (isInteractive) {
         g.text(n.rightX - 128, n.y + 28, '−', 20, 'white', 'middle', 700)
       }
-    } else if (n.is_expandable && isInteractive && !(g instanceof OrbitSVG)) {
+    } else if (n.is_expandable && isInteractive) {
       g.text(n.rightX - 20, n.y + 24, '+', 20, 'white', 'middle', 700)
     }
     return
@@ -446,13 +295,13 @@ function renderNode(
     g.rect(n.x, n.y, n.width, n.height, 14, 'moepill')
     g.text(n.cx, n.y + 31, spec.moe ? 'MoE' : 'Feed forward', 22, '', 'middle')
 
-    if (n.isExpanded && !(g instanceof OrbitSVG)) {
+    if (n.isExpanded) {
       g.rect(n.rightX - 116, n.y + 13, 102, 22, 5, 'pill')
       g.text(n.rightX - 65, n.y + 27, 'MAGNIFIED ▶', 10, 'accent', 'middle', 700)
       if (isInteractive) {
         g.text(n.rightX - 128, n.y + 28, '−', 18, 'black', 'middle', 700)
       }
-    } else if (n.is_expandable && isInteractive && !(g instanceof OrbitSVG)) {
+    } else if (n.is_expandable && isInteractive) {
       g.text(n.rightX - 16, n.y + 20, '+', 16, 'accent', 'middle', 700)
     }
     return
@@ -489,12 +338,11 @@ function renderChildPill(
   nodeAttrs: (n: LayoutedNode) => string
 ): void {
   g.raw(`<g ${nodeAttrs(ch)} id="${escapeHtml(ch.id)}">`)
-  if (g instanceof OrbitSVG) g.beginVolume(ch, 15)
   const pillClass = 'pill'
 
   g.rect(ch.x, ch.y, ch.width, ch.height, 10, pillClass)
 
-  const badge = g instanceof OrbitSVG ? undefined : ch.badge
+  const badge = ch.badge
   const badgeW = badge ? Math.max(48, badge.length * 7 + 10) : 0
   const badgeH = 18
   const badgeX = ch.rightX - badgeW - 8
@@ -548,7 +396,6 @@ function renderChildPill(
     g.text(badgeX + badgeW / 2, badgeY + 13, badge, 9, 'accent', 'middle', 700)
   }
 
-  if (g instanceof OrbitSVG) g.endVolume()
   g.raw(`</g>`)
 }
 
@@ -603,7 +450,7 @@ function drawMoeInset(g: SVG, s: ArchSpec, startX: number, startY: number): void
   }
 }
 
-function workspaceStyles(id: string, spatial?: boolean): string {
+function workspaceStyles(id: string): string {
   return `
     #${id} .surface { fill: transparent; }
     #${id} .outer { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
@@ -621,21 +468,5 @@ function workspaceStyles(id: string, spatial?: boolean): string {
     #${id} .interactive-node:is(:hover, :focus-visible, .node-selected) > :is(rect, circle) {
       stroke: #0e7490; stroke-width: 4;
     }
-    ${spatial ? `
-      #${id} .volume-front > rect:first-of-type { rx: 0; }
-      #${id} .interactive-node:is(:hover, :focus-visible, .node-selected) > .volume-front > :is(rect:first-of-type, path) {
-        stroke: #0e7490; stroke-width: 3;
-      }
-      #${id} .orbit-labels { pointer-events: none; }
-      #${id} .orbit-labels text { paint-order: stroke; stroke: #fff; stroke-width: 2.5; stroke-linejoin: round; }
-      #${id} .orbit-labels :is(.white, .accent-dark) { fill: #fff; stroke: #164e63; }
-      #${id} .orbit-label-chip { pointer-events: auto; cursor: pointer; }
-      #${id} .orbit-label-chip rect { fill: #fff; stroke: #94a3b8; }
-      #${id} .orbit-label-chip:is(:hover, .is-selected) rect { stroke: #0e7490; stroke-width: 2; }
-      #${id} .volume-top { fill: #d5e6ec; stroke: #8daab7; stroke-width: 1.5; }
-      #${id} .volume-side { fill: #a4bbc6; stroke: #8daab7; stroke-width: 1.5; }
-      #${id} .node-kind-attention .volume-top { fill: #3b8296; stroke: #164e63; }
-      #${id} .node-kind-attention .volume-side { fill: #0c3444; stroke: #164e63; }
-    ` : ''}
   `
 }
