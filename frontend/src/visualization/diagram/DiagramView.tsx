@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import {
   fetchArchSpec,
   fetchModelInventory,
@@ -15,6 +15,8 @@ import type {
   DetailPreset,
   LayoutedNode,
 } from '../../engine/semantic/types'
+
+const InferenceWalkthrough = lazy(() => import('../inference/InferenceWalkthrough'))
 
 const DEFAULT_CAMERA: DiagramCamera = { yaw: -32, pitch: -23 }
 const ROTATION_KEYS = new Map([
@@ -60,6 +62,7 @@ export default function DiagramView({ model }: { model: string }) {
   const [compareLoading, setCompareLoading] = useState(false)
 
   // UI Panels & Canvas Viewport
+  const [showInference, setShowInference] = useState(false)
   const [spatial, setSpatial] = useState(() => new URLSearchParams(window.location.search).get('view') === '3d')
   const [camera, setCamera] = useState(DEFAULT_CAMERA)
   const [showInspector, setShowInspector] = useState(true)
@@ -514,6 +517,11 @@ export default function DiagramView({ model }: { model: string }) {
 
   return (
     <div className="interactive-diagram-workspace">
+      {showInference && (
+        <Suspense fallback={<span role="status" className="inference-loading">Loading inference model…</span>}>
+          <InferenceWalkthrough onClose={() => setShowInference(false)} />
+        </Suspense>
+      )}
       {/* Top Toolbar */}
       <div className="diagram-workspace-toolbar" role="toolbar" aria-label="Diagram Controls">
         {/* Left: Detail Slider (1 - 2 - 3) */}
@@ -522,6 +530,9 @@ export default function DiagramView({ model }: { model: string }) {
             <button type="button" aria-pressed={!spatial} onClick={() => setSpatial(false)}>2D</button>
             <button type="button" aria-pressed={spatial} onClick={() => setSpatial(true)}>3D</button>
           </div>
+          <button type="button" className="toolbar-btn" onClick={() => setShowInference(true)}>
+            Live inference
+          </button>
           <div className="detail-slider-control">
             <div className="slider-pills" role="radiogroup" aria-label="Detail Preset">
               <button
