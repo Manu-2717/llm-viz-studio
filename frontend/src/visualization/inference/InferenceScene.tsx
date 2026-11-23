@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_CAMERA, orbitProjection, ROTATION_KEYS, rotateCamera } from '../../engine/semantic/orbit'
 import type { ChannelTensor, InferenceStep } from '../../engine/inference/tinyRecall'
+import AcceleratorBoard from './AcceleratorBoard'
 
 const WIDTH = 940
 const HEIGHT = 780
@@ -96,22 +97,10 @@ export default function InferenceScene({ steps, tensor, tokens, step, position, 
           const xStart = MID - columns * cellWidth / 2
           const rowDepth = 13
           const zStart = -tokens.length * rowDepth / 2
-          const left = xStart - 9, right = xStart + columns * cellWidth + 9
-          const front = zStart - 7, back = zStart + tokens.length * rowDepth + 7
-          const corners = [project([left, level, front]), project([right, level, front]),
-            project([right, level, back]), project([left, level, back])]
-          const low = corners.map((_, i) => project([
-            i === 0 || i === 3 ? left : right, level + 10, i < 2 ? front : back,
-          ]))
-          const faces = corners.map((corner, i) => {
-            const j = (i + 1) % corners.length
-            return { points: [corner, corners[j], low[j], low[i]], depth: corner.depth + corners[j].depth }
-          }).sort((a, b) => a.depth - b.depth)
           const range = Math.max(1e-9, ...board.values.flat().filter(Number.isFinite).map(Math.abs))
           return (
-            <g key={index} className={selected ? 'inference-board is-current' : 'inference-board'}>
-              {faces.slice(-2).map(face => <polygon key={face.points.map(xy).join(' ')} className="inference-board-edge" points={face.points.map(xy).join(' ')} />)}
-              <polygon className="inference-board-top" points={corners.map(xy).join(' ')} />
+            <AcceleratorBoard key={index} project={project} center={MID} level={level}
+              selected={selected} surfaceWidth={columns * cellWidth}>
               {board.values.flatMap((row, r) => row.map((value, c) => {
                 const x = xStart + c * cellWidth + 1, z = zStart + r * rowDepth + 1
                 const points = [[x, level - 0.3, z], [x + cellWidth - 2, level - 0.3, z],
@@ -125,14 +114,14 @@ export default function InferenceScene({ steps, tensor, tokens, step, position, 
                   </polygon>
                 )
               }))}
-            </g>
+            </AcceleratorBoard>
           )
         })}
         {LEVELS.map((y, index) => {
           const p = project([MID, y, 0])
           return (
             <g key={index} className={index === active ? 'inference-deck-caption is-current' : 'inference-deck-caption'}>
-              <line x1={p.x + 65} y1={p.y} x2={590} y2={p.y} />
+              <line x1={Math.min(585, Math.max(...[-205, 205].flatMap(x => [-76, 76].map(z => project([MID + x, y, z]).x))) + 8)} y1={p.y} x2={590} y2={p.y} />
               <text x={606} y={p.y - 4}>{LABELS[index]}</text>
               {index === active && <text className="inference-deck-detail" x={606} y={p.y + 17}>
                 {tensor.name} · {tensor.values.length} × {tensor.values[0].length}

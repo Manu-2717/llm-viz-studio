@@ -39,7 +39,7 @@
   min-height: 0;
   overflow: hidden;
   color: #e7f4f6;
-  background: radial-gradient(ellipse at 36% 45%, #1d4b5d, #101e33 75%);
+  background: radial-gradient(ellipse at 37% 44%, #28404a 0%, #121f2b 64%, #0c1521 100%);
 }
 
 .inference-scene-header, .inference-scene-footer {
@@ -59,11 +59,11 @@
 .inference-scene-canvas:active { cursor: grabbing; }
 .inference-scene-canvas:focus-visible { outline: 2px solid #77dfcb; outline-offset: -2px; }
 .inference-spine { fill: none; stroke: #73ccbe; stroke-width: 2; stroke-dasharray: 5 7; opacity: .55; }
-.inference-board { opacity: .7; }
+.inference-board { opacity: .83; }
 .inference-board.is-current { opacity: 1; }
-.inference-board-top { fill: #152b46; stroke: #628497; stroke-width: 1.3; }
-.inference-board-edge { fill: #142035; stroke: #45667b; stroke-width: 1.3; }
-.inference-board.is-current .inference-board-top { stroke: #85fae3; stroke-width: 2.4; }
+.accelerator-part polygon { stroke: #101924; stroke-width: .7; stroke-linejoin: round; }
+.accelerator-carrier polygon, .accelerator-backplate polygon { stroke: #637984; }
+.accelerator-active-outline { fill: none; stroke: #8ef5dd; stroke-width: 2; pointer-events: none; }
 .inference-deck-caption { pointer-events: none; }
 .inference-deck-caption line { stroke: #7190a1; stroke-width: 1; stroke-dasharray: 3 5; opacity: .6; }
 .inference-deck-caption text { fill: #c6dce5; font: 600 19px system-ui, sans-serif; }
