@@ -1,4 +1,5 @@
-import { renderTensorScene, type DiagramCamera } from './tensorScene'
+import { renderTensorScene } from './tensorScene'
+import type { DiagramCamera } from './orbit'
 import { SVG, escapeHtml, fmtCount } from '../render/svg'
 import { accentFor, scopeId, stylesheet, blockTint } from '../render/tokens'
 import { textWidth } from '../render/widths'

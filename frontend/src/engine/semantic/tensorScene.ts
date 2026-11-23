@@ -2,10 +2,7 @@ import { SVG, escapeHtml } from '../render/svg'
 import { textWidth } from '../render/widths'
 import type { DiagramLayout, LayoutedNode } from './types'
 
-export interface DiagramCamera {
-  yaw: number
-  pitch: number
-}
+import { orbitProjection, type DiagramCamera } from './orbit'
 
 type Point = [number, number, number]
 type Projected = { x: number; y: number; depth: number }
@@ -54,26 +51,13 @@ export function renderTensorScene(
 ): string {
   const svg = new SVG()
   const yaw = camera.yaw * Math.PI / 180
-  const pitch = camera.pitch * Math.PI / 180
   const centerX = layout.width / 2
-  const centerY = layout.height / 2
-  const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw)
-  const sinPitch = Math.sin(pitch), cosPitch = Math.cos(pitch)
+  const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw)
+  const project = orbitProjection(camera, centerX, layout.height / 2)
   const nodes = visibleTensorNodes(layout).map(node => volume(node, layout.height))
   const byId = new Map(nodes.map(block => [block.node.id, block]))
   const labelSize = Math.max(17, 11 / viewportScale)
   const cellSize = 23
-
-  const project = ([x, y, z]: Point): Projected => {
-    const horizontal = x - centerX
-    const vertical = y - centerY
-    const depth = -horizontal * sinYaw + z * cosYaw
-    return {
-      x: centerX + horizontal * cosYaw + z * sinYaw,
-      y: centerY + vertical * cosPitch - depth * sinPitch,
-      depth: vertical * sinPitch + depth * cosPitch,
-    }
-  }
 
   const line = (from: Projected, to: Projected, cls: string) =>
     svg.line(from.x, from.y, to.x, to.y, cls)

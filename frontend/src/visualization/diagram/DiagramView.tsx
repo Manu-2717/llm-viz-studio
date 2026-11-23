@@ -9,7 +9,8 @@ import type { TensorInfo } from '../../graph/types'
 import { buildSemanticTree } from '../../engine/semantic/tree'
 import { computeDiagramLayout } from '../../engine/semantic/layout'
 import { renderSemanticDiagram } from '../../engine/semantic/render'
-import { visibleTensorNodes, type DiagramCamera } from '../../engine/semantic/tensorScene'
+import { visibleTensorNodes } from '../../engine/semantic/tensorScene'
+import { DEFAULT_CAMERA, ROTATION_KEYS, rotateCamera, type DiagramCamera } from '../../engine/semantic/orbit'
 import type {
   WorkspaceState,
   DetailPreset,
@@ -17,21 +18,6 @@ import type {
 } from '../../engine/semantic/types'
 
 const InferenceWalkthrough = lazy(() => import('../inference/InferenceWalkthrough'))
-
-const DEFAULT_CAMERA: DiagramCamera = { yaw: -32, pitch: -23 }
-const ROTATION_KEYS = new Map([
-  ['ArrowLeft', [-8, 0]],
-  ['ArrowRight', [8, 0]],
-  ['ArrowUp', [0, -8]],
-  ['ArrowDown', [0, 8]],
-])
-
-function rotateCamera(camera: DiagramCamera, yaw: number, pitch: number): DiagramCamera {
-  return {
-    yaw: ((camera.yaw + yaw) % 360 + 360) % 360,
-    pitch: Math.max(-55, Math.min(55, camera.pitch + pitch)),
-  }
-}
 
 export default function DiagramView({ model }: { model: string }) {
   const [spec, setSpec] = useState<ArchSpec | null>(null)
@@ -258,7 +244,7 @@ export default function DiagramView({ model }: { model: string }) {
     const observer = new ResizeObserver(fit)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [fit, loading, err])
+  }, [fit, loading, err, showInference])
 
   const zoomAt = useCallback((factor: number, x: number, y: number) => {
     const nextScale = Math.min(6, Math.max(0.08, scale * factor))
@@ -278,7 +264,7 @@ export default function DiagramView({ model }: { model: string }) {
     }
     el.addEventListener('wheel', fn, { passive: false })
     return () => el.removeEventListener('wheel', fn)
-  }, [zoomAt, loading, err])
+  }, [zoomAt, loading, err, showInference])
 
   const zoomFromCenter = (factor: number) => {
     const el = stage.current
@@ -497,6 +483,14 @@ export default function DiagramView({ model }: { model: string }) {
     )
   }
 
+  if (showInference) {
+    return (
+      <Suspense fallback={<main className="loading" role="status">Loading inference model…</main>}>
+        <InferenceWalkthrough onClose={() => setShowInference(false)} />
+      </Suspense>
+    )
+  }
+
   const rows = [
     ['Model ID', model],
     ['Architecture', spec.architecture],
@@ -517,11 +511,6 @@ export default function DiagramView({ model }: { model: string }) {
 
   return (
     <div className="interactive-diagram-workspace">
-      {showInference && (
-        <Suspense fallback={<span role="status" className="inference-loading">Loading inference model…</span>}>
-          <InferenceWalkthrough onClose={() => setShowInference(false)} />
-        </Suspense>
-      )}
       {/* Top Toolbar */}
       <div className="diagram-workspace-toolbar" role="toolbar" aria-label="Diagram Controls">
         {/* Left: Detail Slider (1 - 2 - 3) */}
